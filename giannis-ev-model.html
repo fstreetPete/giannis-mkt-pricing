@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Giannis Next Team — EV Model</title>
+<style>
+  :root { --accent: #ec5d3b; --ink: #222; --rule: #e6e6e6; --rule-strong: #222; }
+
+  body {
+    font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    max-width: 1000px; margin: 0 auto; padding: 32px 20px 72px;
+    color: var(--ink); line-height: 1.5;
+    background: #fbfbf9;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1 {
+    font-size: 27px; font-weight: 800; letter-spacing: -0.4px; line-height: 1.15;
+    margin: 0 0 4px; color: #111;
+  }
+  h1 + p.muted { padding-bottom: 14px; border-bottom: 3px solid var(--ink); }
+
+  h2 {
+    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    color: #111; margin: 38px 0 4px; padding-bottom: 7px;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  h2::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 8px;
+    background: var(--accent); vertical-align: baseline; }
+
+  table {
+    border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; background: #fff;
+  }
+  th, td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--rule); }
+  th {
+    color: #777; text-transform: uppercase; letter-spacing: 0.5px;
+    font-weight: 700; font-size: 10.5px; border-bottom: 2px solid var(--rule-strong);
+    vertical-align: bottom;
+  }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr:hover td { background: #faf6f2; }
+  tfoot td { border-top: 2px solid var(--rule-strong); border-bottom: none;
+    font-weight: 800; color: #111; padding-top: 11px; }
+
+  input[type=number], input[type=text] {
+    width: 70px; padding: 5px 6px; font: inherit; font-size: 13px; font-weight: 600; text-align: right;
+    font-variant-numeric: tabular-nums;
+    background: #fff; color: var(--ink);
+    border: 1px solid #cfcfcf; border-radius: 3px;
+  }
+  input[type=text] { width: 150px; text-align: left; font-weight: 700; }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(236,93,59,0.18); }
+
+  .num { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .pos { color: #2c8a4a; font-weight: 700; }
+  .neg { color: #cf3a2e; font-weight: 700; }
+  .muted { color: #888; font-size: 12.5px; }
+
+  .controls { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .controls label { font-size: 13px; color: #444; font-weight: 600; }
+
+  button {
+    font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.3px; color: #fff;
+    background: var(--accent); border: 1px solid var(--accent); border-radius: 3px;
+    padding: 7px 14px; cursor: pointer;
+  }
+  button:hover { background: #d94c2c; border-color: #d94c2c; }
+  button:active { transform: translateY(1px); }
+
+  .sumok { color: #2c8a4a; }
+  .sumbad { color: #cf3a2e; }
+
+  .note {
+    background: #fff; border-left: 3px solid var(--accent);
+    padding: 10px 14px; font-size: 12px; color: #555; margin-top: 12px;
+  }
+
+  .del {
+    color: #cf3a2e; cursor: pointer; font-size: 14px; font-weight: 700; font-style: normal;
+    background: none; border: none; padding: 0; letter-spacing: 0;
+  }
+  .del:hover { background: none; color: #a92a20; text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>Giannis Antetokounmpo — Next Team EV Model</h1>
+<p class="muted">Edit any input. Everything recalculates live. Calculations use your probabilities <b>normalized to 100%</b>, so adding an unlisted team (e.g. Thunder) automatically dilutes Boston/Miami and improves the "No" bets.</p>
+
+<div class="controls">
+  <label>Vig / fee (% haircut on winnings): <input type="number" id="vig" value="0" step="0.5"></label>
+</div>
+
+<h2>1. Outcome probabilities &amp; posted Kalshi prices</h2>
+<table id="probTable">
+  <thead>
+    <tr>
+      <th>Outcome</th>
+      <th>My prob (%)</th>
+      <th>Used (norm. %)</th>
+      <th>Kalshi Yes (¢)</th>
+      <th>Kalshi No (¢)</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody id="probBody"></tbody>
+  <tfoot>
+    <tr>
+      <td>Total (raw)</td>
+      <td id="probSum" class="num"></td>
+      <td>100.0</td>
+      <td colspan="3"></td>
+    </tr>
+  </tfoot>
+</table>
+<div class="controls">
+  <button onclick="addTeam()">+ Add team</button>
+  <button onclick="normalize()">Normalize my probs to 100%</button>
+</div>
+
+<h2>2. Your three bets (independent)</h2>
+<table id="betTable">
+  <thead>
+    <tr>
+      <th>Bet</th>
+      <th>Bet size ($)</th>
+      <th>Entry price (¢)</th>
+      <th>Implied mkt %</th>
+      <th>My win prob %</th>
+      <th>Edge (pts)</th>
+      <th>EV (% of bet)</th>
+      <th>EV ($)</th>
+    </tr>
+  </thead>
+  <tbody id="betBody"></tbody>
+  <tfoot>
+    <tr>
+      <td colspan="7">Combined expected return (sum of bets)</td>
+      <td id="totalEV" class="num"></td>
+    </tr>
+  </tfoot>
+</table>
+<div class="note">
+  Each bet pays $1 per contract if it wins. EV($) = q·B·(1−p)/p·(1−vig) − (1−q)·B, where p = entry price, q = your win prob, B = bet size.
+  "Boston No" wins unless he goes to Boston, so q = 1 − P(Boston). Same logic for Miami No.
+</div>
+
+<h2>3. Scenario analysis (shows correlation)</h2>
+<p class="muted">For each possible destination, the combined dollar P&amp;L across all three bets if that outcome occurs. The bottom row is the probability-weighted expected total.</p>
+<table id="scenTable">
+  <thead>
+    <tr>
+      <th>If he goes to…</th>
+      <th>Prob (norm. %)</th>
+      <th>Stays-Yes P&amp;L</th>
+      <th>Boston-No P&amp;L</th>
+      <th>Miami-No P&amp;L</th>
+      <th>Total P&amp;L</th>
+    </tr>
+  </thead>
+  <tbody id="scenBody"></tbody>
+  <tfoot>
+    <tr>
+      <td colspan="5">Expected total (Σ prob × P&amp;L)</td>
+      <td id="scenEV" class="num"></td>
+    </tr>
+  </tfoot>
+</table>
+
+<script>
+// ---- Data model ----
+// Base outcomes. listed=true means it has a Kalshi market.
+let outcomes = [
+  { id: 'boston', name: 'Boston',                    prob: 47, yes: 45, no: 57, listed: true,  fixed: true },
+  { id: 'miami',  name: 'Miami',                     prob: 39, yes: 39, no: 62, listed: true,  fixed: true },
+  { id: 'stays',  name: 'Stays w/ Milwaukee or Retires', prob: 10, yes: 11, no: 90, listed: true, fixed: true },
+];
+
+// The three bets, mapped to which outcome + which side they use.
+let bets = [
+  { id: 'staysYes', label: 'Stays/Retires — Yes', size: 100, price: 11, target: 'stays', side: 'yes' },
+  { id: 'bostonNo', label: 'Boston — No',         size: 100, price: 57, target: 'boston', side: 'no'  },
+  { id: 'miamiNo',  label: 'Miami — No',          size: 100, price: 62, target: 'miami', side: 'no'  },
+];
+
+let teamCounter = 0;
+
+function num(v, d=0){ const n=parseFloat(v); return isNaN(n)?d:n; }
+
+// ---- Render probability table ----
+function renderProbTable(){
+  const body = document.getElementById('probBody');
+  body.innerHTML = '';
+  outcomes.forEach((o, i) => {
+    const tr = document.createElement('tr');
+    const delCell = o.fixed ? '' : `<button class="del" onclick="removeTeam('${o.id}')">✕</button>`;
+    const nameCell = o.fixed ? o.name : `<input type="text" value="${o.name}" onchange="setName('${o.id}', this.value)">`;
+    const priceCells = o.listed
+      ? `<td><input type="number" value="${o.yes}" step="1" oninput="setField('${o.id}','yes',this.value)"></td>
+         <td><input type="number" value="${o.no}" step="1" oninput="setField('${o.id}','no',this.value)"></td>`
+      : `<td class="muted">—</td><td class="muted">—</td>`;
+    tr.innerHTML = `
+      <td>${nameCell}</td>
+      <td><input type="number" value="${o.prob}" step="1" oninput="setField('${o.id}','prob',this.value)"></td>
+      <td class="num" id="norm-${o.id}"></td>
+      ${priceCells}
+      <td>${delCell}</td>`;
+    body.appendChild(tr);
+  });
+}
+
+// ---- Render bet table ----
+function renderBetTable(){
+  const body = document.getElementById('betBody');
+  body.innerHTML = '';
+  bets.forEach(b => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${b.label}</td>
+      <td><input type="number" value="${b.size}" step="10" oninput="setBet('${b.id}','size',this.value)"></td>
+      <td><input type="number" value="${b.price}" step="1" oninput="setBet('${b.id}','price',this.value)"></td>
+      <td class="num" id="impl-${b.id}"></td>
+      <td class="num" id="q-${b.id}"></td>
+      <td class="num" id="edge-${b.id}"></td>
+      <td class="num" id="evpct-${b.id}"></td>
+      <td class="num" id="evdol-${b.id}"></td>`;
+    body.appendChild(tr);
+  });
+}
+
+// ---- Setters ----
+function setField(id, field, val){ const o=outcomes.find(x=>x.id===id); o[field]=num(val); recalc(); }
+function setName(id, val){ const o=outcomes.find(x=>x.id===id); o.name=val; recalc(); }
+function setBet(id, field, val){ const b=bets.find(x=>x.id===id); b[field]=num(val); recalc(); }
+
+function addTeam(){
+  teamCounter++;
+  const id = 'team'+teamCounter;
+  outcomes.push({ id, name: 'Other team '+teamCounter, prob: 10, listed: false, fixed: false });
+  renderProbTable(); recalc();
+}
+function removeTeam(id){
+  outcomes = outcomes.filter(o => o.id !== id);
+  renderProbTable(); recalc();
+}
+function normalize(){
+  const total = outcomes.reduce((s,o)=>s+num(o.prob),0);
+  if(total>0) outcomes.forEach(o => o.prob = Math.round((num(o.prob)/total)*1000)/10);
+  renderProbTable(); recalc();
+}
+
+// ---- Core EV math ----
+// Yes-type contract at price p (0-1), bet B, win prob q, vig v (0-1).
+function evDollars(B, p, q, v){
+  if(p<=0) return 0;
+  const winProfit = B*(1-p)/p*(1-v);   // profit if win, after fee haircut
+  return q*winProfit - (1-q)*B;
+}
+function fmt(x){ return (x>=0?'+':'') + x.toFixed(2); }
+function cls(x){ return x>0?'pos':(x<0?'neg':''); }
+
+function recalc(){
+  const vig = num(document.getElementById('vig').value)/100;
+
+  // normalize probabilities
+  const rawTotal = outcomes.reduce((s,o)=>s+num(o.prob),0);
+  const normProb = {};
+  outcomes.forEach(o => { normProb[o.id] = rawTotal>0 ? num(o.prob)/rawTotal : 0; });
+
+  // sum indicator
+  const sumEl = document.getElementById('probSum');
+  sumEl.textContent = rawTotal.toFixed(1);
+  sumEl.className = 'num ' + (Math.abs(rawTotal-100)<0.05 ? 'sumok' : 'sumbad');
+
+  // normalized column
+  outcomes.forEach(o => {
+    const el = document.getElementById('norm-'+o.id);
+    if(el) el.textContent = (normProb[o.id]*100).toFixed(1);
+  });
+
+  // bets
+  let totalEV = 0;
+  bets.forEach(b => {
+    const p = num(b.price)/100;
+    const pTarget = normProb[b.target] || 0;
+    const q = b.side === 'yes' ? pTarget : (1 - pTarget);
+    const ev = evDollars(num(b.size), p, q, vig);
+    const evpct = num(b.size)>0 ? ev/num(b.size)*100 : 0;
+    const implied = p*100;          // posted price ≈ market-implied prob of this side winning
+    const edge = q*100 - implied;
+    totalEV += ev;
+
+    document.getElementById('impl-'+b.id).textContent = implied.toFixed(1)+'%';
+    const qEl = document.getElementById('q-'+b.id); qEl.textContent = (q*100).toFixed(1)+'%';
+    const edgeEl = document.getElementById('edge-'+b.id); edgeEl.textContent = fmt(edge); edgeEl.className='num '+cls(edge);
+    const pctEl = document.getElementById('evpct-'+b.id); pctEl.textContent = fmt(evpct)+'%'; pctEl.className='num '+cls(evpct);
+    const dolEl = document.getElementById('evdol-'+b.id); dolEl.textContent = '$'+fmt(ev); dolEl.className='num '+cls(ev);
+  });
+  const tEl = document.getElementById('totalEV'); tEl.textContent = '$'+fmt(totalEV); tEl.className='num '+cls(totalEV);
+
+  // scenario table
+  const vigV = vig;
+  const scenBody = document.getElementById('scenBody');
+  scenBody.innerHTML = '';
+  let expectedTotal = 0;
+  outcomes.forEach(o => {
+    const prob = normProb[o.id];
+    // P&L of each bet given the realized outcome is o.id
+    const pnl = bets.map(b => {
+      const p = num(b.price)/100;
+      const B = num(b.size);
+      let win;
+      if(b.side==='yes') win = (o.id === b.target);
+      else               win = (o.id !== b.target);
+      if(p<=0) return 0;
+      return win ? B*(1-p)/p*(1-vigV) : -B;
+    });
+    const total = pnl.reduce((s,x)=>s+x,0);
+    expectedTotal += prob*total;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${o.name}</td>
+      <td class="num">${(prob*100).toFixed(1)}</td>
+      <td class="num ${cls(pnl[0])}">$${fmt(pnl[0])}</td>
+      <td class="num ${cls(pnl[1])}">$${fmt(pnl[1])}</td>
+      <td class="num ${cls(pnl[2])}">$${fmt(pnl[2])}</td>
+      <td class="num ${cls(total)}"><b>$${fmt(total)}</b></td>`;
+    scenBody.appendChild(tr);
+  });
+  const sEl = document.getElementById('scenEV'); sEl.textContent = '$'+fmt(expectedTotal); sEl.className='num '+cls(expectedTotal);
+}
+
+document.getElementById('vig').addEventListener('input', recalc);
+renderProbTable();
+renderBetTable();
+recalc();
+</script>
+
+</body>
+</html>
