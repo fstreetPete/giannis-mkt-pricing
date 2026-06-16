@@ -134,6 +134,7 @@
       <th>Edge (pts)</th>
       <th>EV (% of bet)</th>
       <th>EV ($)</th>
+      <th>Kelly weight</th>
     </tr>
   </thead>
   <tbody id="betBody"></tbody>
@@ -141,12 +142,14 @@
     <tr>
       <td colspan="7">Combined expected return (sum of bets)</td>
       <td id="totalEV" class="num"></td>
+      <td id="kellyTotal" class="num"></td>
     </tr>
   </tfoot>
 </table>
 <div class="note">
   Each bet pays $1 per contract if it wins. EV($) = q·B·(1−p)/p·(1−vig) − (1−q)·B, where p = entry price, q = your win prob, B = bet size.
   "Boston No" wins unless he goes to Boston, so q = 1 − P(Boston). Same logic for Miami No.
+  <b>Kelly weight</b> is the growth-optimal way to split a pot across the three, solved jointly so it accounts for how the bets overlap — it's a relative ratio, independent of your bet sizes and bankroll. A bet can drop to a small weight (or 0) if it's redundant with a better-priced one, and a slightly −EV bet can earn weight if it hedges the others.
 </div>
 
 <h2>3. Scenario analysis (shows correlation)</h2>
@@ -229,7 +232,8 @@ function renderBetTable(){
       <td class="num" id="q-${b.id}"></td>
       <td class="num" id="edge-${b.id}"></td>
       <td class="num" id="evpct-${b.id}"></td>
-      <td class="num" id="evdol-${b.id}"></td>`;
+      <td class="num" id="evdol-${b.id}"></td>
+      <td class="num" id="kelly-${b.id}"></td>`;
     body.appendChild(tr);
   });
 }
@@ -290,6 +294,53 @@ function evDollars(B, p, q, v){
   const winProfit = B*(1-p)/p*(1-v);   // profit if win, after fee haircut
   return q*winProfit - (1-q)*B;
 }
+
+// ---- Joint (correlation-aware) Kelly allocation across the 3 bets ----
+// Maximizes expected log-wealth over the discrete outcome distribution.
+// Returns absolute Kelly fractions f[] (long-only); ratios are what we display.
+function kellyWeights(normProb, vig){
+  const P = [], R = [];   // P[k] = prob of outcome k; R[k][i] = return-multiple of bet i in outcome k
+  outcomes.forEach(o => {
+    const Pk = normProb[o.id] || 0;
+    if(Pk <= 0) return;
+    const row = bets.map(b => {
+      const p = num(b.price)/100;
+      if(!(p > 0 && p < 1)) return 0;
+      const win = b.side === 'yes' ? (o.id === b.target) : (o.id !== b.target);
+      return win ? (1 - p)/p*(1 - vig) : -1;   // profit multiple if win, -1 (lose stake) if not
+    });
+    P.push(Pk); R.push(row);
+  });
+
+  const obj = (f) => {
+    let s = 0;
+    for(let k = 0; k < P.length; k++){
+      const w = 1 + R[k][0]*f[0] + R[k][1]*f[1] + R[k][2]*f[2];
+      if(w <= 1e-12) return -Infinity;
+      s += P[k]*Math.log(w);
+    }
+    return s;
+  };
+
+  let f = [0.02, 0.02, 0.02];
+  for(let iter = 0; iter < 3000; iter++){
+    const W = R.map(r => 1 + r[0]*f[0] + r[1]*f[1] + r[2]*f[2]);
+    if(W.some(w => w <= 1e-9)){ f = f.map(x => x*0.5); continue; }
+    const g = [0,0,0];
+    for(let k = 0; k < P.length; k++)
+      for(let i = 0; i < 3; i++) g[i] += P[k]*R[k][i]/W[k];
+    if(Math.hypot(g[0],g[1],g[2]) < 1e-7) break;
+    const G0 = obj(f);
+    let lr = 0.5, moved = false;
+    for(let bt = 0; bt < 50; bt++){
+      const fn = [Math.max(0,f[0]+lr*g[0]), Math.max(0,f[1]+lr*g[1]), Math.max(0,f[2]+lr*g[2])];
+      if(obj(fn) > G0){ f = fn; moved = true; break; }
+      lr *= 0.5;
+    }
+    if(!moved) break;
+  }
+  return { f, sum: f[0]+f[1]+f[2] };
+}
 function fmt(x){ return (x>=0?'+':'') + x.toFixed(2); }
 function cls(x){ return x>0?'pos':(x<0?'neg':''); }
 
@@ -308,7 +359,8 @@ function recalc(){
 
   // bets
   let totalEV = 0;
-  bets.forEach(b => {
+  const kelly = kellyWeights(normProb, vig);
+  bets.forEach((b, idx) => {
     const p = num(b.price)/100;
     const pTarget = normProb[b.target] || 0;
     const q = b.side === 'yes' ? pTarget : (1 - pTarget);
@@ -323,8 +375,15 @@ function recalc(){
     const edgeEl = document.getElementById('edge-'+b.id); edgeEl.textContent = fmt(edge); edgeEl.className='num '+cls(edge);
     const pctEl = document.getElementById('evpct-'+b.id); pctEl.textContent = fmt(evpct)+'%'; pctEl.className='num '+cls(evpct);
     const dolEl = document.getElementById('evdol-'+b.id); dolEl.textContent = '$'+fmt(ev); dolEl.className='num '+cls(ev);
+
+    const kEl = document.getElementById('kelly-'+b.id);
+    if(kelly.sum > 1e-6){ kEl.textContent = (kelly.f[idx]/kelly.sum*100).toFixed(1)+'%'; kEl.className='num'; }
+    else { kEl.textContent = '—'; kEl.className='num muted'; }
   });
   const tEl = document.getElementById('totalEV'); tEl.textContent = '$'+fmt(totalEV); tEl.className='num '+cls(totalEV);
+  const ktEl = document.getElementById('kellyTotal');
+  if(kelly.sum > 1e-6){ ktEl.textContent = '100%'; ktEl.className='num'; }
+  else { ktEl.textContent = 'no edge'; ktEl.className='num muted'; }
 
   // scenario table
   const vigV = vig;
