@@ -365,7 +365,7 @@ function recalc(){
     const pTarget = normProb[b.target] || 0;
     const q = b.side === 'yes' ? pTarget : (1 - pTarget);
     const ev = evDollars(num(b.size), p, q, vig);
-    const evpct = num(b.size)>0 ? ev/num(b.size)*100 : 0;
+    const evpct = (p > 0 ? (q*(1-p)/p*(1-vig) - (1-q)) : 0) * 100;  // per-dollar EV, independent of bet size
     const implied = p*100;          // posted price ≈ market-implied prob of this side winning
     const edge = q*100 - implied;
     totalEV += ev;
